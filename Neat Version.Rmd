@@ -15,19 +15,19 @@ Be warned some analyses take a significant time to run! The results are pre-save
 
 
 ```{r, message=FALSE, warning=FALSE}
-# Maths and Analyses:
-library(deSolve);library(igraph)
-library(numDeriv);library(rootSolve)
+library(deSolve)
+library(igraph)
+library(numDeriv)
+library(rootSolve)
 library(NetIndices)
-
-# Graphics:
-library(pbapply);library(knitr)
-require(cowplot);library(mvbutils);
-library(xtable)
-
-# Utilities:
-library(Rcpp);library(microbenchmark);
-library(pracma);library(parallel);library(R.utils)
+library(pbapply)
+library(knitr)
+library(cowplot)
+library(mvbutils)
+library(Rcpp)
+library(pracma)
+library(parallel)
+library(R.utils)
 library(tidyverse)
 ```
 
@@ -35,8 +35,10 @@ library(tidyverse)
 try(sapply(paste0('Scripts/',list.files('Scripts')), source)->tmp)
 
 ParallelRun <- function(DATA,FUNC,Name, ...){
-  c1<- makeCluster(4)
-  clusterEvalQ(c1,{require(dplyr);require(rootSolve);require(deSolve);require(igraph);require(purrr)})->tmp
+  c1<- makeCluster(3)
+  clusterEvalQ(c1,
+               {require(dplyr);require(rootSolve);
+                 require(deSolve);require(igraph);require(purrr)})->tmp
   clusterExport(c1,as.list(find.funs()[find.funs()!='LV']))
   pblapply(X =DATA, cl = c1,FUN = FUNC,...)-> tmp
   assign(value = tmp,Name)
@@ -63,7 +65,7 @@ ErrorFinder<- function(SafeObject){
 
 ```{r, eval=FALSE}
 
-ParallelRun(1:500, CreateModel, 'BaseCommunities',   S=35,C=0.14,smallestsize=18)
+ParallelRun(1:500, CreateModel, 'BaseCommunities',S=35,C=0.14,smallestsize=18)
 
 load('Output from Simulations/BaseCommunities')
 
@@ -81,7 +83,17 @@ load('Output from Simulations/BaseCommunities_Success')
 ```
 
 ### Build Models
-```{r eval=FALSE}
+```{r eval=TRUE}
+
+AddTIMsMort(Model = BaseCommunities_Success[[1]],
+              TIM_Density = 0, 
+            TIM_Inflexion = 1, TIM_Range = 2, ## Arbitary values,as unused! 
+            TIM_Slopes = 1, 
+            LimitTIMsPerInteraction =FALSE ,
+            FolderName = 'TIM_test/No_TIM')
+
+
+
 ParallelRun(BaseCommunities_Success,
             AddTIMsMort, 'NoTIM_Models',
             TIM_Density = 0, 
@@ -96,7 +108,7 @@ ParallelRun(BaseCommunities_Success,
 
 
 ### Make the models:
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 ParallelRun(BaseCommunities_Success,
             AddTIMsMort, 'TIMModelsInflex',
             TIM_Density = 0.05,
@@ -116,7 +128,7 @@ ParallelRun(BaseCommunities_Success,
 
 
 ### Run the models:
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 load('Output from Simulations/TIMModelsInflex')
 
 ParallelRun(TIMModelsInflex,
@@ -136,7 +148,7 @@ ParallelRun(NTEModelsInflex,
 Here just detailing one set of parameters. Orevious ran with other TIM densities, slopes and ranges. 
 
 ### Build Models
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 ParallelRun(BaseCommunities_Success[1:200],
             AddTIMsMort, 
             'TIM_Models_Lots_Strong',
@@ -148,7 +160,7 @@ ParallelRun(BaseCommunities_Success[1:200],
 
 ### Run Models
 
-```{r eval=FALSE}
+```{r eval=TRUE}
 load('Output from Simulations/TIM_Models_Lots_Strong')
 ParallelRun(TIM_Models_Lots_Strong,
             safely(RunMortality),
@@ -300,7 +312,7 @@ ggsave('Figures/Figure5.pdf', width = 6, height=4)
 
 ## TIM frequency and vulnerabilty distribution
 
-```{r, eval=FALSE}
+```{r, eval=TRUE}
 LS_TIM_Extinctions  %>%Unpacker%>%
   map_df(CalcExpTIMs, TIM_Density=0.08) -> LS_Results3
 LS_Results3 %>% mutate(TIMType='LS') ->LS_Results3
@@ -535,7 +547,7 @@ ggsave('Figures/CommunityInfoPlots.png', width = 8, height=8, dpi = 400)
 ## SI 5 Initial direction of response
 
 
-```{r eval=FALSE}
+```{r eval=TRUE}
 TIM_Models_Lots_Strong[[1]] -> Model
 
 load('Output from Simulations/TIM_Models_Lots_Strong')
