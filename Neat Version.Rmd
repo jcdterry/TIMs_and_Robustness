@@ -84,15 +84,7 @@ load('Output from Simulations/BaseCommunities_Success')
 
 ### Build Models
 ```{r eval=TRUE}
-
-AddTIMsMort(Model = BaseCommunities_Success[[1]],
-              TIM_Density = 0, 
-            TIM_Inflexion = 1, TIM_Range = 2, ## Arbitary values,as unused! 
-            TIM_Slopes = 1, 
-            LimitTIMsPerInteraction =FALSE ,
-            FolderName = 'TIM_test/No_TIM')
-
-
+dir.create('No_TIM')
 
 ParallelRun(BaseCommunities_Success,
             AddTIMsMort, 'NoTIM_Models',
@@ -100,47 +92,50 @@ ParallelRun(BaseCommunities_Success,
             TIM_Inflexion = 1, TIM_Range = 2, ## Arbitary values,as unused! 
             TIM_Slopes = 1, 
             LimitTIMsPerInteraction =FALSE ,
-            FolderName = 'TIM_test/No_TIM')
+            FolderName = 'No_TIM')
 ```
-
 
 ## Test 1 - Comparison of TIM vs Pairwise
 
-
 ### Make the models:
 ```{r, eval=TRUE}
+dir.create('TIMmods')
+
 ParallelRun(BaseCommunities_Success,
-            AddTIMsMort, 'TIMModelsInflex',
+            AddTIMsMort,
+            'TIMModels',
             TIM_Density = 0.05,
             TIM_Inflexion = 1, 
             TIM_Range = 4,
             TIM_Slopes = 4,
-            LimitTIMsPerInteraction = TRUE)
+            LimitTIMsPerInteraction = TRUE, 
+            FolderName = 'TIMmods')
+
+dir.create('NTEmods')
 
 ParallelRun(BaseCommunities_Success, 
             AddNTEsMort,
-            'NTEModelsInflex',
+            'NTEModels',
             TIM_Density = 0.05,
             TIM_Inflexion = 1, 
             TIM_Range = 4,
             TIM_Slopes = 4)
 ```
 
-
 ### Run the models:
 ```{r, eval=TRUE}
-load('Output from Simulations/TIMModelsInflex')
+load('Output from Simulations/TIMModels')
 
 ParallelRun(TIMModelsInflex,
             safely(EffectofMortality),
-            'ExtinctionTIM_M1Inflex' , 
+            'ExtinctionTIM' , 
             AddedMortality = 1)
 
-load('Output from Simulations/NTEModelsInflex')
+load('Output from Simulations/NTEModels')
 
 ParallelRun(NTEModelsInflex,
             safely(EffectofMortality),
-            'ExtinctionNTE_M1Inflex' ,
+            'ExtinctionNTE' ,
             AddedMortality=1)
 ```
 
