@@ -144,13 +144,15 @@ Here just detailing one set of parameters. Orevious ran with other TIM densities
 
 ### Build Models
 ```{r, eval=TRUE}
+
+dir.create('LS_TIM')
 ParallelRun(BaseCommunities_Success[1:200],
             AddTIMsMort, 
             'TIM_Models_Lots_Strong',
             TIM_Density = 0.08, 
             TIM_Inflexion = 1, TIM_Range = 3, TIM_Slopes = 3,
             LimitTIMsPerInteraction =FALSE, 
-            FolderName = 'TIM_test/LS_TIM'  )
+            FolderName = 'LS_TIM'  )
 ```
 
 ### Run Models
