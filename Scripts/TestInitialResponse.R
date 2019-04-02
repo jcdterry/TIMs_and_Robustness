@@ -18,6 +18,6 @@ TestInitialResponse<- function(Model, AddedMortality=1){
     
     DirectionChange[[Sp]]<- SignResponse
   }
-  cat('.')
+#  cat('.')
   return(unlist(DirectionChange))
 }

@@ -2,17 +2,18 @@
 title: "Code"
 date:  '`r format(Sys.time(), "%d %B, %Y")`'
 author: "Chris Terry"
-output: html_document
+output:
+  github_document:
+    html_preview: false
 editor_options: 
   chunk_output_type: console
 ---
 
 ## Introduction
 
-This is a tidied version of the code used to generate the results in Terry et al (2019) *Interaction modifications lead to greater robustness than pairwise   non-trophic effects in food webs*
+This is a tidied version of the code used to generate the results in Terry et al (2019) *Interaction modifications lead to greater robustness than pairwise non-trophic effects in food webs*
 
-Be warned some analyses take a significant time to run! The results are pre-saved for futher analysis. 
-
+Be warned some analyses take a significant time to run! The simulation outputs are pre-generated. 
 
 ```{r, message=FALSE, warning=FALSE}
 library(deSolve)
@@ -27,15 +28,17 @@ library(mvbutils)
 library(Rcpp)
 library(pracma)
 library(parallel)
-library(R.utils)
 library(tidyverse)
+
+NUM_CORES <- 3 # Number of cores to use for parallel
+
 ```
 
 ```{r, message=FALSE, warning=FALSE}
 try(sapply(paste0('Scripts/',list.files('Scripts')), source)->tmp)
 
 ParallelRun <- function(DATA,FUNC,Name, ...){
-  c1<- makeCluster(3)
+  c1<- makeCluster(NUM_CORES)
   clusterEvalQ(c1,
                {require(dplyr);require(rootSolve);
                  require(deSolve);require(igraph);require(purrr)})->tmp
@@ -64,11 +67,9 @@ ErrorFinder<- function(SafeObject){
 
 
 ```{r, eval=FALSE}
-
 ParallelRun(1:500, CreateModel, 'BaseCommunities',S=35,C=0.14,smallestsize=18)
 
 load('Output from Simulations/BaseCommunities')
-
 BaseCommunities%>% map_lgl('Success') -> Successes
 mean(Successes)
 BaseCommunities_Success<-BaseCommunities[Successes]
@@ -83,24 +84,32 @@ load('Output from Simulations/BaseCommunities_Success')
 ```
 
 ### Build Models
-```{r eval=TRUE}
+```{r eval=FALSE}
 dir.create('No_TIM')
-
 ParallelRun(BaseCommunities_Success,
             AddTIMsMort, 'NoTIM_Models',
             TIM_Density = 0, 
-            TIM_Inflexion = 1, TIM_Range = 2, ## Arbitary values,as unused! 
+            TIM_Inflexion = 1, TIM_Range = 2, ## Arbitary values, as unused! 
             TIM_Slopes = 1, 
             LimitTIMsPerInteraction =FALSE ,
             FolderName = 'No_TIM')
+
+```
+
+### Run Models
+```{r eval=FALSE}
+load('Output from Simulations/NoTIM_Models')
+ParallelRun(NoTIM_Models[1:200],
+            safely(RunMortality),
+            'No_TIM_Extinctions',
+            AddedMortality = 1)
 ```
 
 ## Test 1 - Comparison of TIM vs Pairwise
 
 ### Make the models:
-```{r, eval=TRUE}
+```{r eval=FALSE}
 dir.create('TIMmods')
-
 ParallelRun(BaseCommunities_Success,
             AddTIMsMort,
             'TIMModels',
@@ -112,7 +121,6 @@ ParallelRun(BaseCommunities_Success,
             FolderName = 'TIMmods')
 
 dir.create('NTEmods')
-
 ParallelRun(BaseCommunities_Success, 
             AddNTEsMort,
             'NTEModels',
@@ -123,28 +131,19 @@ ParallelRun(BaseCommunities_Success,
 ```
 
 ### Run the models:
-```{r, eval=TRUE}
+```{r eval=FALSE}
 load('Output from Simulations/TIMModels')
-
 ParallelRun(TIMModelsInflex,
             safely(EffectofMortality),
             'ExtinctionTIM' , 
             AddedMortality = 1)
-
-load('Output from Simulations/NTEModels')
-
-ParallelRun(NTEModelsInflex,
-            safely(EffectofMortality),
-            'ExtinctionNTE' ,
-            AddedMortality=1)
 ```
 
 ## Test 2 - Relationship Between TIMs and Extinctions
 Here just detailing one set of parameters. Orevious ran with other TIM densities, slopes and ranges. 
 
 ### Build Models
-```{r, eval=TRUE}
-
+```{r eval=FALSE}
 dir.create('LS_TIM')
 ParallelRun(BaseCommunities_Success[1:200],
             AddTIMsMort, 
@@ -157,7 +156,7 @@ ParallelRun(BaseCommunities_Success[1:200],
 
 ### Run Models
 
-```{r eval=TRUE}
+```{r eval=FALSE}
 load('Output from Simulations/TIM_Models_Lots_Strong')
 ParallelRun(TIM_Models_Lots_Strong,
             safely(RunMortality),
@@ -169,18 +168,18 @@ ParallelRun(TIM_Models_Lots_Strong,
 
 ## Number of Extinctions TIMs vs Pairwise
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 load('Output from Simulations/No_TIM_Extinctions')
-load('Output from Simulations/ExtinctionTIM_M1Inflex')
-load('Output from Simulations/ExtinctionNTE_M1Inflex')
+load('Output from Simulations/ExtinctionTIM')
+load('Output from Simulations/ExtinctionNTE')
 
-ExtinctionTIM_M1Inflex %>%
+ExtinctionTIM %>%
   Unpacker  %>%
   bind_rows()  %>%
   mutate(Type = 'TIMs')%>%
   filter(ModelID <467)-> TIMs
 
-ExtinctionNTE_M1Inflex %>% 
+ExtinctionNTE %>% 
   Unpacker%>%
   bind_rows()  %>%
   mutate(Type = 'NTEs')%>%
@@ -224,8 +223,8 @@ TIM_NTE_comp %>%
             TotExp=sum(NumPopExplosion, na.rm=TRUE)) %>%
   kable(digits = 3)
 
-t.test(TIM_NTE_comp$Extinctions[TIM_NTE_comp$Type=='NTEs_Inflex'],
-       TIM_NTE_comp$Extinctions[TIM_NTE_comp$Type=='TIMs_Inflex'], paired=TRUE)
+t.test(TIM_NTE_comp$Extinctions[TIM_NTE_comp$Type=='NTEs'],
+       TIM_NTE_comp$Extinctions[TIM_NTE_comp$Type=='TIMs'], paired=TRUE)
 
 ```
 
@@ -235,10 +234,8 @@ t.test(TIM_NTE_comp$Extinctions[TIM_NTE_comp$Type=='NTEs_Inflex'],
 
 First get data into shape:
 ```{r}
-
 load('Output from Simulations/No_TIM_Extinctions')
 load('Output from Simulations/LS_TIM_Extinctions')
-
 ```
 
 ```{r}
@@ -306,16 +303,14 @@ ggsave('Figures/Figure5.pdf', width = 6, height=4)
 
 ```
 
-
 ## TIM frequency and vulnerabilty distribution
 
-```{r, eval=TRUE}
-LS_TIM_Extinctions  %>%Unpacker%>%
-  map_df(CalcExpTIMs, TIM_Density=0.08) -> LS_Results3
-LS_Results3 %>% mutate(TIMType='LS') ->LS_Results3
-
+```{r, eval=FALSE}
+LS_TIM_Extinctions  %>%
+  Unpacker%>%
+  map_df(CalcExpTIMs, TIM_Density=0.08)  %>%
+  mutate(TIMType='LS') ->LS_Results3
 save(LS_Results3, file = 'Output from Simulations/LS_Results3')
-
 ```
 
 ```{r}
@@ -353,7 +348,7 @@ LS_Results3%>%
   lm(Number~ Type, data=.)%>%  anova
 
 
-## Pairwise paired t-tests (with welch variance correction) (all incredibly significant)
+## Pairwise paired t-tests (all very significant)
 
 t.test(x = LS_Results3$mean_BenefTIMsfromAnytoEx_list,
        y=LS_Results3$AllExpNum, paired=TRUE)
@@ -365,29 +360,26 @@ t.test(x = LS_Results3$mean_BenefTIMsfromHtoEx_list,
 t.test(x = LS_Results3$mean_DetriTIMsfromHtoEx_list,
        y=LS_Results3$HuntedExpNum, paired=TRUE)
        
-       
 ```
 
-# ```{r}
-# No_TIM_Extinctions  %>%Unpacker%>%
-#   map_df(AnalyseEffectOfMortality)%>%
-#   mutate(TIMType='None') -> No_Results
-# LS_TIM_Extinctions  %>%Unpacker%>%
-#   map_df(AnalyseEffectOfMortality)%>%
-#   mutate(TIMType='LS') -> LS_Results
-# 
-# TIMResults<-bind_rows(No_Results,LS_Results)
-# save(TIMResults, file = 'Output from Simulations/TIMResults')
-# ```
-# 
-# ```{r}
-# load('Output from Simulations/TIMResults')
-# ```
+```{r eval=FALSE}
+No_TIM_Extinctions  %>%Unpacker%>%
+ map_df(AnalyseEffectOfMortality)%>%
+ mutate(TIMType='None') -> No_Results
 
+LS_TIM_Extinctions  %>%Unpacker%>%
+ map_df(AnalyseEffectOfMortality)%>%
+ mutate(TIMType='LS') -> LS_Results
 
-## 4 TIMs from Hunted
+TIMResults<-bind_rows(No_Results,LS_Results)
+save(TIMResults, file = 'Output from Simulations/TIMResults')
+
+```
+
 
 ```{r}
+load('Output from Simulations/TIMResults')
+
 TIMResults %>%
   gather('TIMClassFromHunted', 'Count',
          NumPosTIMsFromHunted, NumNegTIMsFromHunted) %>%
@@ -410,6 +402,7 @@ TIMResults %>%
 
 plot_grid(All, Split, labels=c('a.', 'b.'))
 ggsave('Figures/Figure6.png',dpi = 400, width = 8, height=4)
+ggsave('Figures/Figure6.pdf',width = 8, height=4)
 
 TIMResults %>%
   gather('TIMClassFromHunted', 'Count',
@@ -447,195 +440,5 @@ summary(SplitTrophGLM)
 
 anova(SplitGLM, TotTIMsGLM,test="Chisq")
 anova(SplitGLM, SplitTrophGLM,test="Chisq")
-
-TIMResults %>%
-  filter(TIMType=='LS')%>%
-  ggplot(aes(NumPosTIMsFromHunted,NumNegTIMsFromHunted))+
-  geom_point() + geom_smooth(method = 'lm')
-
 ```
 
-
-# SI 
-
-## SI 1. Body mass distribution
-
-```{r}
-load('Output from Simulations/BaseCommunities_Success')
-
-BaseCommunities_Success<-BaseCommunities_Success[1:200]
-
-BaseCommunities_Success%>%
-  map(CutModelDown)%>%
-  map('web') %>%
-  map(GetTL) %>% unlist-> NewTLs
-
-BaseCommunities_Success %>%
-  map(CutModelDown) -> CutDown
-
-map_dbl(CutDown,'StartingNum')-> Sp
-map(CutDown,'TL')%>% unlist-> TL
-map(CutDown,'StartPoints')%>% unlist-> Eqm
-map(CutDown,'K')%>% unlist-> K
-
-## Body Size / TL
-map(BaseCommunities_Success,function(Model){
-return(Model$BMs[which(Model$Start>0)])
-})%>% unlist-> BM
-
-data.frame(BM, TL)%>%
-  filter(TL>1,TL < 5)%>%
-  ggplot(aes(col=factor(TL), fill= factor(TL), x=BM))+
-  geom_density(alpha=0.5)+
-  scale_x_log10()+
-  geom_vline(xintercept =1, size=2 )+
- scale_color_discrete(name='Trophic Level')+
-   scale_fill_discrete(name='Trophic Level')+
-  labs(x='Body-mass', y='')
-
-ggsave('Figures/Distribution of Body Masses.png', width = 6, height=4, dpi = 400)
-
-```
-
-### SI 2. Details of starting populations
-
-```{r}
-data.frame('NumberSp'=Sp)%>%
-  ggplot(aes(x=Sp))+
-  geom_bar()+
-  scale_x_continuous(breaks=18:27, labels=18:27)+
-  labs(x= 'Starting Community Size', y= 'Count') -> A
-
-data.frame(NewTLs)%>%
-  ggplot(aes(x=NewTLs))+
-  geom_histogram(bins=20)+
-  scale_x_continuous(breaks=c(1,2,2.5,3,3.5,4),
-                     labels=c(1,2,2.5,3,3.5,4),
-                     limits = c(0.9,4.1))+
-  labs( x='Trophic Level Of Species', y='Number of Species') -> B
-tail(sort(NewTLs),10)
-
-data.frame(NewTLs, Eqm)%>%
-  filter(Eqm > 0.01)%>%
-  ggplot(aes(x=NewTLs, y=Eqm))+
-  geom_point(alpha=0.1)+
-  scale_y_log10(breaks=c(0.001, 0.01, 0.1, 1, 10, 100) ,
-                labels=c(0.001, 0.01, 0.1, 1, 10, 100 ))+
-  labs(y='Starting Equilibrium Biomass', x='Trophic Level Of Species') -> C
-
-
-data.frame('C' =Eqm/K,  TL)%>%
-  mutate(TLCat = ifelse(TL==1,'Producer', 'Consumer'  ))%>%
-  ggplot(aes(x=C))+
-  geom_histogram()+
-  facet_wrap(~TLCat)+
-  scale_x_continuous(breaks=c(0,0.25, 0.5, 0.75,1),
-                     labels=c(0,0.25, 0.5, 0.75,1))+
-  labs(x='Equilibrium Fraction of K', 
-       y='Number of Species') -> D
-
-plot_grid(A,B,C,D, labels = 'AUTO')
-    
-ggsave('Figures/CommunityInfoPlots.png', width = 8, height=8, dpi = 400)
-
-```
-
-
-## SI 5 Initial direction of response
-
-
-```{r eval=TRUE}
-TIM_Models_Lots_Strong[[1]] -> Model
-
-load('Output from Simulations/TIM_Models_Lots_Strong')
-
-TIM_Models_Lots_Strong %>%
-  map(TestInitialResponse) -> AllDirectionResponses
-
-AllDirectionResponses%>% 
-  unlist %>%
-  table -> Dir_Table
-
-Dir_Table[3]/(Dir_Table[1]+Dir_Table[3]) *100
-
-Dir_Table / sum(Dir_Table)
-```
-
-SI XFrequency of predator release motif
-
-
-
-### Motifs of Extinctions
-
-```{r}
-
-
-LS_TIM_unpacked<- Unpacker(LS_TIM_Extinctions)
-
-
-
-### What is the total number of species that:
-## have a consumer 
-## have their threat reduced by a modifier
-## the modifier was targetted
-
-
-#run<- LS_TIM_unpacked[[12]]
-
-
-MotifFreq<-function(run){
-  
-  
-  Complete<- run$postExtEnd_List %>% map_lgl( function(x) {all(x!='DNF')})
-  
-  run$postExtEnd_List[Complete]%>%
-    unlist%>%
-    matrix(nrow = sum(Complete), byrow=TRUE)-> Results
-  
-  MotifFrequency <- data.frame('MotifFrequency' = rep(0,run$S ),
-                               'n_Extinctions' = 0,
-                               'OverallExtinctionFreq' = NA)
-  
-  for(ii in 1:sum(Complete)){
-    
-    target <- which(Complete)[ii]
-    
-    run$TIMlist%>%
-      filter(i %in% which(rowSums(run$web)>1),
-             k== target, 
-             slope_ijk <0)%>%
-      select(i)%>%
-      unlist -> SuppressedResources
-    
-    MotifFrequency$OverallExtinctionFreq[target] <- mean(Results[ii,]==0)
-    
-    if(length(SuppressedResources>0)){
-      MotifFrequency$MotifFrequency[target] <- length(SuppressedResources)
-      MotifFrequency$n_Extinctions[target] <-  sum(Results[ii,SuppressedResources] ==0)
-    }else{
-      MotifFrequency$MotifFrequency[target] <-0
-      MotifFrequency$n_Extinctions[target] <- 0
-    }
-  }
-  return(MotifFrequency)
-}
-
-LS_TIM_unpacked %>%
-  map_df(MotifFreq)-> OverallMotifFreqResults
-
-
-OverallMotifFreqResults %>%
-  mutate(MotifExtFreq = n_Extinctions /MotifFrequency )%>%
-  filter(!is.na(OverallExtinctionFreq))%>%
-  mutate(MotifExtFreq = ifelse(is.nan(MotifExtFreq),0,MotifExtFreq) )%>%
-  colMeans()
-
-
-```
-
-# Session Info
-
-```{r}
-
-sessionInfo()
-```

@@ -1,0 +1,294 @@
+---
+title: "SI Code"
+date:  '`r format(Sys.time(), "%d %B, %Y")`'
+author: "Chris Terry"
+output:
+  github_document:
+    html_preview: false
+editor_options: 
+  chunk_output_type: console
+---
+
+## Introduction
+
+This is a tidied version of the code used to generate the supplementary results in Terry et al (2019) *Interaction modifications lead to greater robustness than pairwise non-trophic effects in food webs*
+
+```{r, message=FALSE, warning=FALSE}
+library(deSolve)
+library(igraph)
+library(numDeriv)
+library(rootSolve)
+library(NetIndices)
+library(pbapply)
+library(knitr)
+library(cowplot)
+library(mvbutils)
+library(Rcpp)
+library(pracma)
+library(parallel)
+library(tidyverse)
+
+NUM_CORES <- 3 # Number of cores to use for parallel
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+try(sapply(paste0('Scripts/',list.files('Scripts')), source)->tmp)
+
+ParallelRun <- function(DATA,FUNC,Name, ...){
+  c1<- makeCluster(NUM_CORES)
+  clusterEvalQ(c1,
+               {require(dplyr);require(rootSolve);
+                 require(deSolve);require(igraph);require(purrr)})->tmp
+  clusterExport(c1,as.list(find.funs()[find.funs()!='LV']))
+  pblapply(X =DATA, cl = c1,FUN = FUNC,...)-> tmp
+  assign(value = tmp,Name)
+  save(list=Name,file=paste0('Output from Simulations/',Name))
+  stopCluster(c1) 
+}
+
+Unpacker <- function(SafeObject){
+  SafeObject  %>%transpose %>% `[[`('result') %>% compact() -> x
+  return(x)
+}
+
+ErrorFinder<- function(SafeObject){
+  SafeObject  %>%transpose %>% `[[`('error') -> errormessages
+  errormessages %>% map_lgl(is.null) %>% `!` %>% which %>% print
+  errormessages %>% compact() %>% print()
+}
+```
+
+# SI 
+
+## SI 1. Body mass distribution
+
+```{r}
+load('Output from Simulations/BaseCommunities_Success')
+
+BaseCommunities_Success<-BaseCommunities_Success[1:200]
+
+BaseCommunities_Success%>%
+  map(CutModelDown)%>%
+  map('web') %>%
+  map(GetTL) %>% unlist-> NewTLs
+
+BaseCommunities_Success %>%
+  map(CutModelDown) -> CutDown
+
+map_dbl(CutDown,'StartingNum')-> Sp
+map(CutDown,'TL')%>% unlist-> TL
+map(CutDown,'StartPoints')%>% unlist-> Eqm
+map(CutDown,'K')%>% unlist-> K
+
+## Body Size / TL
+map(BaseCommunities_Success,function(Model){
+return(Model$BMs[which(Model$Start>0)])
+})%>% unlist-> BM
+
+data.frame(BM, TL)%>%
+  filter(TL>1,TL < 5)%>%
+  ggplot(aes(col=factor(TL), fill= factor(TL), x=BM))+
+  geom_density(alpha=0.5)+
+  scale_x_log10()+
+  geom_vline(xintercept =1, size=2 )+
+ scale_color_discrete(name='Trophic Level')+
+   scale_fill_discrete(name='Trophic Level')+
+  labs(x='Body-mass', y='')
+
+ggsave('Figures/Distribution of Body Masses.png', width = 6, height=4, dpi = 400)
+
+```
+
+### SI 2. Details of starting populations
+
+```{r}
+data.frame('NumberSp'=Sp)%>%
+  ggplot(aes(x=Sp))+
+  geom_bar()+
+  scale_x_continuous(breaks=18:27, labels=18:27)+
+  labs(x= 'Starting Community Size', y= 'Count') -> A
+
+data.frame(NewTLs)%>%
+  ggplot(aes(x=NewTLs))+
+  geom_histogram(bins=20)+
+  scale_x_continuous(breaks=c(1,2,2.5,3,3.5,4),
+                     labels=c(1,2,2.5,3,3.5,4),
+                     limits = c(0.9,4.1))+
+  labs( x='Trophic Level Of Species', y='Number of Species') -> B
+tail(sort(NewTLs),10)
+
+data.frame(NewTLs, Eqm)%>%
+  filter(Eqm > 0.01)%>%
+  ggplot(aes(x=NewTLs, y=Eqm))+
+  geom_point(alpha=0.1)+
+  scale_y_log10(breaks=c(0.001, 0.01, 0.1, 1, 10, 100) ,
+                labels=c(0.001, 0.01, 0.1, 1, 10, 100 ))+
+  labs(y='Starting Equilibrium Biomass', x='Trophic Level Of Species') -> C
+
+
+data.frame('C' =Eqm/K,  TL)%>%
+  mutate(TLCat = ifelse(TL==1,'Producer', 'Consumer'  ))%>%
+  ggplot(aes(x=C))+
+  geom_histogram()+
+  facet_wrap(~TLCat)+
+  scale_x_continuous(breaks=c(0,0.25, 0.5, 0.75,1),
+                     labels=c(0,0.25, 0.5, 0.75,1))+
+  labs(x='Equilibrium Fraction of K', 
+       y='Number of Species') -> D
+
+plot_grid(A,B,C,D, labels = 'AUTO')
+    
+ggsave('Figures/CommunityInfoPlots.png', width = 8, height=8, dpi = 400)
+
+```
+
+
+## SI 5 Initial direction of response
+
+
+```{r}
+load(file='Output from Simulations/TIM_Models_Lots_Strong')
+
+TIM_Models_Lots_Strong %>%
+  map(TestInitialResponse) -> AllDirectionResponses
+
+AllDirectionResponses%>% 
+  unlist %>%
+  table -> Dir_Table
+
+Dir_Table / sum(Dir_Table)
+
+Dir_Table[3]/(Dir_Table[1]+Dir_Table[3]) *100
+```
+
+## SI 7. Distribution of Population Shifts
+
+
+```{r message=FALSE, warning=FALSE}
+load('Output from Simulations/TIM_Models_Lots_Strong')
+load('Output from Simulations/LS_TIM_Extinctions')
+
+ExtractLosses<-function(model){
+  starts<-  model$StartPoints    
+  ends<- model$postExtEnd_List
+  diffs <- matrix(NA, nrow=model$S, ncol=model$S)
+  
+  for( i in 1:model$S){
+    try({
+      diffs[i,] <- (ends[[i]] - starts)/starts
+    }, silent = TRUE)
+  }
+  return(as.vector(diffs[!is.na(diffs)]))
+}
+
+LS_TIM_Extinctions%>%
+  Unpacker%>%
+  map(ExtractLosses)%>%
+  unlist-> AllChanges
+
+(AllChanges<0) %>% table
+
+Extinctions <- AllChanges[AllChanges == -1]
+Losses <-      AllChanges[AllChanges <0 & AllChanges!=-1]
+Gains <-       AllChanges[AllChanges >0]
+
+StdChanges<-data.frame(Value = c(-Extinctions, -Losses, Gains),
+           Category = c(rep('Extinction',length(Extinctions)),
+                        rep('Losses', length(Losses)), 
+                        rep('Gains', length(Gains))))
+
+table(StdChanges$Category)
+
+StdChanges%>%
+  filter(Category !='Extinction')%>%
+  ggplot(aes(Value, fill=Category))+
+  geom_histogram()+
+  scale_x_log10()+
+  facet_wrap(~Category, scales = 'free')+
+  xlab('Proportional Change')+ ylab('')+
+  scale_fill_brewer(palette = 'Set1')+
+  guides(fill=FALSE)+
+
+ggsave('Figures/SI7.png', dpi=400, height = 4, width = 9, units='in')
+
+ExtractOverallLosses<-function(model){
+  starts<-  model$StartPoints    
+  ends<- model$postExtEnd_List
+  diffs <- matrix(NA, nrow=model$S, ncol=1)
+
+  for( i in 1:model$S){
+    try({diffs[i,] <- (sum(ends[[i]]) - sum(starts))/sum(starts)}, silent = TRUE)}
+  return(as.vector(diffs[!is.na(diffs)]))
+}
+
+LS_TIM_Extinctions%>%
+  Unpacker%>%
+  map(ExtractOverallLosses)%>%
+  unlist-> OverallChange
+table(OverallChange<0)
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+
+### Motifs of Extinctions
+
+## Additional analysis for R2
+
+LS_TIM_unpacked<- Unpacker(LS_TIM_Extinctions)
+
+MotifFreq<-function(run){
+  
+  Complete<- run$postExtEnd_List %>% map_lgl( function(x) {all(x!='DNF')})
+  
+  run$postExtEnd_List[Complete]%>%
+    unlist%>%
+    matrix(nrow = sum(Complete), byrow=TRUE)-> Results
+  
+  MotifFrequency <- data.frame('MotifFrequency' = rep(0,run$S ),
+                               'n_Extinctions' = 0,
+                               'OverallExtinctionFreq' = NA)
+  
+  for(ii in 1:sum(Complete)){
+    
+    target <- which(Complete)[ii]
+    
+    run$TIMlist%>%
+      filter(i %in% which(rowSums(run$web)>1),
+             k== target, 
+             slope_ijk <0)%>%
+      select(i)%>%
+      unlist -> SuppressedResources
+    
+    MotifFrequency$OverallExtinctionFreq[target] <- mean(Results[ii,]==0)
+    
+    if(length(SuppressedResources>0)){
+      MotifFrequency$MotifFrequency[target] <- length(SuppressedResources)
+      MotifFrequency$n_Extinctions[target] <-  sum(Results[ii,SuppressedResources] ==0)
+    }else{
+      MotifFrequency$MotifFrequency[target] <-0
+      MotifFrequency$n_Extinctions[target] <- 0
+    }
+  }
+  return(MotifFrequency)
+}
+
+LS_TIM_unpacked %>%
+  map_df(MotifFreq)-> OverallMotifFreqResults
+
+OverallMotifFreqResults %>%
+  mutate(MotifExtFreq = n_Extinctions /MotifFrequency )%>%
+  filter(!is.na(OverallExtinctionFreq))%>%
+  mutate(MotifExtFreq = ifelse(is.nan(MotifExtFreq),0,MotifExtFreq) )%>%
+  colMeans()
+```
+
+# Session Info
+
+```{r}
+
+sessionInfo()
+```
